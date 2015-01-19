@@ -37,6 +37,76 @@ The `cernvm-fork` utility also accepts the following commands:
  * `-C` : Connect to the console of the specified linux container.
  * `-D` : Destroy the specified forked linux container.
 
+# Environment Preparation
+
+In order to be able to run the `cernvm-fork` utility you will have to do the following:
+
+## 1. Install LXC tools
+
+You can find pre-built binaries of the lxc-tools in the EPEL repository:
+
+```sh
+# Add EPEL repository
+rpm -ivh http://mirror.nl.leaseweb.net/epel/6/x86_64/epel-release-6-8.noarch.rpm
+
+# Install LXC tools
+yum -y install lxc lxc-libs lxc-templates bridge-utils libcgroup
+```
+
+## 2. Add a 'none' template
+
+We are not using an LXC template, because of some limitations it imposes (namely it isolates changes in the filesystem and therefore we cannot mount CVMFS repositories):
+
+```sh
+# Create a dummy, 'none' template bootstrap script
+touch /usr/share/lxc/templates/lxc-none
+chmod +x /usr/share/lxc/templates/lxc-none
+```
+
+## 3. Enable CGroups
+
+Make sure the `cgconfig` and `cgred` services are running:
+    
+```sh
+# Enable CGroups
+service cgconfig start
+service cgred start
+chkconfig --level 345 cgconfig on
+chkconfig --level 345 cgred on
+```
+
+## 4. Create a network bridge:
+
+We are going to use a bridge called `lxcbr0` with subnet `192.168.25.0/24`:
+
+```sh
+# Create bridge
+cat <<EOF > /etc/sysconfig/network-scripts/ifcfg-lxcbr0
+DEVICE="lxcbr0"
+TYPE="Bridge"
+BOOTPROTO="static"
+IPADDR="192.168.25.1"
+NETMASK="255.255.255.0"
+EOF
+    
+# Start it
+ifup lxcbr0
+```
+
+## 5. Enable IP forwarding:
+
+We need NAT-based IP forwarding in order to enable network inside the guest:
+
+```sh
+# Enable masquerading on NAT
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+service iptables save
+
+# Enable ip forwarding
+sed -i -E 's/^#?(net.ipv4.ip_forward)(.*)$/\1 = 1/' /etc/sysctl.conf
+sysctl -p
+```
+
 # Technical Information
 
 This utility uses the low-level Linux Container Utilities (lxc-utils) in order to start a new isolated linux container. For the root filesystem, it uses the same techniques with micro-CernVM in order to create a RW overlay on top of the RO operating system files fetched from CVMFS.
