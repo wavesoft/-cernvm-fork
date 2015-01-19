@@ -75,6 +75,14 @@ if [ $? -ne 0 ]; then
 fi
 eval set -- "$options"
 
+# Detect the first bridge availble
+SYS_BRIDGE_IP=""
+SYS_BRIDGE=$(brctl show | tail -n -1 | head -n 1 | awk '{print $1}')
+if [ ! -z "$SYS_BRIDGE" ]; then
+	# Detect the IP address of the bridge
+	SYS_BRIDGE_IP=$(ifconfig ${SYS_BRIDGE} | grep 'inet addr' | sed -r 's/.*?addr:([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+fi
+
 # Prepare defaults
 F_DAEMON=0
 F_NEW=0
@@ -119,11 +127,6 @@ do
 		*)                  break ;;
 	esac
 done
-
-# Override init script if not defined by -r
-if [ ! -z "${INIT_SCRIPT}" ]; then
-	INIT_SCRIPT="$*"
-fi
 
 # Prepare directories
 PROJECT_DIR=${CONFIG_RW_DIR}/${NAME}
@@ -206,6 +209,50 @@ if [ ! -f /usr/share/lxc/templates/lxc-none ]; then
 	chmod +x /usr/share/lxc/templates/lxc-none
 fi
 
+# Check if cgconfig and cgred daemons are running
+if [ $(service cgconfig status | grep -ic 'running') -ne 1 ]; then
+	service cgconfig start
+	if [ $? -ne 0 ]; then
+		echo "ERROR: Unable to start the cgconfig daemon!"
+		exit 1
+	fi
+fi
+if [ $(service cgred status | grep -ic 'running') -ne 1 ]; then
+	service cgred start
+	if [ $? -ne 0 ]; then
+		echo "ERROR: Unable to start the cgred daemon!"
+		exit 1
+	fi
+fi
+
+# Check if system bridge exists and if not create it
+if [ -z "${SYS_BRIDGE}" ]; then
+	echo -n "Creating bridge interface ${CONFIG_IP_BRIDGE}..."
+	brctl addbr ${CONFIG_IP_BRIDGE}
+	if [ $? -ne 0 ]; then
+		echo "ERROR: Unable to create bridge interface!"
+		exit 1
+	fi
+	echo "ok"
+else
+	CONFIG_IP_BRIDGE=${SYS_BRIDGE}
+fi
+
+# Check if system bridge has an IP and if not configure it
+if [ -z "${SYS_BRIDGE_IP}" ]; then
+	echo -n "Configuring ${CONFIG_IP_BRIDGE}..."
+	ifconfig ${CONFIG_IP_BRIDGE} ${CONFIG_IP_GATEWAY}/24
+	if [ $? -ne 0 ]; then
+		echo "ERROR: Unable to configure the bridge interface!"
+		exit 1
+	fi
+	echo "ok"
+else
+	# Import the IP configuration from the bridge
+	CONFIG_IP_GATEWAY=${SYS_BRIDGE_IP}
+	CONFIG_IP_SUFFIX=$(echo ${SYS_BRIDGE_IP} | sed -r 's/([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+fi
+
 # Prepare mount point
 echo -n "Preparing filesystem..."
 mkdir -p ${MNT_DIR}
@@ -242,6 +289,11 @@ lxc.rootfs = ${MNT_DIR}
 lxc.stopsignal = SIGKILL
 lxc.console = ${CONSOLE_FILE}
 EOF
+
+# Add init process if specified
+if [ ! -z "${INIT_SCRIPT}" -a "${INIT_SCRIPT}" != "/sbin/init" ]; then
+	echo "lxc.init_cmd=${INIT_SCRIPT}" >> $LXC_CONFIG
+fi
 
 # Check if we should not add network
 if [ $F_NONIC -eq 1 ]; then
