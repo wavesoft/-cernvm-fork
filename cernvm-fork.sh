@@ -225,32 +225,59 @@ if [ $(service cgred status | grep -ic 'running') -ne 1 ]; then
 	fi
 fi
 
-# Check if system bridge exists and if not create it
-if [ -z "${SYS_BRIDGE}" ]; then
-	echo -n "Creating bridge interface ${CONFIG_IP_BRIDGE}..."
-	brctl addbr ${CONFIG_IP_BRIDGE}
-	if [ $? -ne 0 ]; then
-		echo "ERROR: Unable to create bridge interface!"
-		exit 1
-	fi
-	echo "ok"
-else
-	CONFIG_IP_BRIDGE=${SYS_BRIDGE}
-fi
+# Additional checks only if we need a network device
+if [ $F_NONIC -eq 0 ]; then
 
-# Check if system bridge has an IP and if not configure it
-if [ -z "${SYS_BRIDGE_IP}" ]; then
-	echo -n "Configuring ${CONFIG_IP_BRIDGE}..."
-	ifconfig ${CONFIG_IP_BRIDGE} ${CONFIG_IP_GATEWAY}/24
-	if [ $? -ne 0 ]; then
-		echo "ERROR: Unable to configure the bridge interface!"
-		exit 1
+	# Check if system bridge exists and if not create it
+	if [ -z "${SYS_BRIDGE}" ]; then
+		echo -n "Creating bridge interface ${CONFIG_IP_BRIDGE}..."
+		brctl addbr ${CONFIG_IP_BRIDGE}
+		if [ $? -ne 0 ]; then
+			echo "ERROR: Unable to create bridge interface!"
+			exit 1
+		fi
+		echo "ok"
+	else
+		CONFIG_IP_BRIDGE=${SYS_BRIDGE}
 	fi
-	echo "ok"
-else
-	# Import the IP configuration from the bridge
-	CONFIG_IP_GATEWAY=${SYS_BRIDGE_IP}
-	CONFIG_IP_SUFFIX=$(echo ${SYS_BRIDGE_IP} | sed -r 's/([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+
+	# Check if system bridge has an IP and if not configure it
+	if [ -z "${SYS_BRIDGE_IP}" ]; then
+		echo -n "Configuring ${CONFIG_IP_BRIDGE}..."
+		ifconfig ${CONFIG_IP_BRIDGE} ${CONFIG_IP_GATEWAY}/24
+		if [ $? -ne 0 ]; then
+			echo "ERROR: Unable to configure the bridge interface!"
+			exit 1
+		fi
+		echo "ok"
+	else
+		# Import the IP configuration from the bridge
+		CONFIG_IP_GATEWAY=${SYS_BRIDGE_IP}
+		CONFIG_IP_SUFFIX=$(echo ${SYS_BRIDGE_IP} | sed -r 's/([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+	fi
+
+	# Check for post-routing masquerade
+	if [ $(iptables -n -t nat -L POSTROUTING | grep -ci MASQUERADE) -eq 0 ]; then
+		echo -n "Adding required NAT rules..."
+		iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+		if [ $? -ne 0 ]; then
+			echo "ERROR: Unable to configure firewall!"
+			exit 1
+		fi
+		echo "ok"
+	fi
+
+	# Check if NAT IP forwarding is enabled
+	if [ $(cat /proc/sys/net/ipv4/ip_forward) -ne 1 ]; then
+		echo -n "Enabling IP forwarding..."
+		echo 1 > /proc/sys/net/ipv4/ip_forward
+		if [ $? -ne 0 ]; then
+			echo "ERROR: Unable to enable IP forwarding!"
+			exit 1
+		fi
+		echo "ok"
+	fi
+	
 fi
 
 # Prepare mount point
@@ -270,12 +297,6 @@ fi
 echo -n "Mounting container root on ${MNT_DIR}..."
 mount -t aufs -o dirs=${RW_DIR}=rw:${RO_DIR}=ro aufs-${NAME} ${MNT_DIR}
 echo "ok"
-
-# Calculate a random IP Address
-if [ -z "${IP_ADDR}" ]; then
-   IP_ADDR=${CONFIG_IP_SUFFIX}.$(shuf -i 2-254 -n 1)
-fi
-echo "The container will have IP ${IP_ADDR}"
 
 # Create linux container file
 LXC_CONFIG=${PROJECT_DIR}/config.lxc
@@ -301,6 +322,13 @@ if [ $F_NONIC -eq 1 ]; then
 lxc.network.type=empty
 EOF
 else
+
+	# Calculate a random IP Address
+	if [ -z "${IP_ADDR}" ]; then
+	   IP_ADDR=${CONFIG_IP_SUFFIX}.$(shuf -i 2-254 -n 1)
+	fi
+	echo "The container will have IP ${IP_ADDR}"
+
 	cat <<EOF >> $LXC_CONFIG
 lxc.network.type = veth
 lxc.network.flags = up
