@@ -31,12 +31,12 @@ function usage {
 	echo "CernVM Environment Fork Script"
 	echo "Usage:"
 	echo ""
-	echo " $1 <name> [-n|--new] [-c|--nonic] [-d|--daemon]"
-	echo "           [-r|--run=<script>] [-t|--tty=<number>]"
-	echo "           [-a|--admin=<username>[:<password>]]"
-	echo "           [--init=<script>] [--cvmfs=<repos>]"
-	echo " $1 <name> -C [-t|--tty=<number>]"
-	echo " $1 <name> -D"
+	echo " cernfm-fork <name> [-n|--new] [-c|--nonic] [-d|--daemon]"
+	echo "                    [-r|--run=<script>] [-t|--tty=<number>]"
+	echo "                    [-a|--admin=<username>[:<password>]]"
+	echo "                    [--init=<script>] [--cvmfs=<repos>]"
+	echo " cernfm-fork <name> -C [-t|--tty=<number>]"
+	echo " cernfm-fork <name> -D"
 	echo ""
 	echo "Options:"
 	echo "  -h|--help         This help screen"
@@ -70,7 +70,7 @@ NAME=$1
 # Get options from command-line
 options=$(getopt -o hDCt:ncdra: -l help,destroy,console,tty:,new,nonic,daemon,admin:,cvmfs:,run:,init:,ip:,log: -- "$@")
 if [ $? -ne 0 ]; then
-		usage $(basename $0)
+	usage
 	exit 1
 fi
 eval set -- "$options"
@@ -101,7 +101,7 @@ CONSOLE_TTY="1"
 while true
 do
 	case "$1" in
-		-h|--help)          usage $0 && exit 0;;
+		-h|--help)          usage && exit 0;;
 		-n|--new)           F_NEW=1; shift 1;;
 		-d|--daemon)        F_DAEMON=1; shift 1;;
 		-c|--nonic)         F_NONIC=1; shift 1;;
@@ -311,11 +311,6 @@ lxc.stopsignal = SIGKILL
 lxc.console = ${CONSOLE_FILE}
 EOF
 
-# Add init process if specified
-if [ ! -z "${INIT_SCRIPT}" -a "${INIT_SCRIPT}" != "/sbin/init" ]; then
-	echo "lxc.init_cmd=${INIT_SCRIPT}" >> $LXC_CONFIG
-fi
-
 # Check if we should not add network
 if [ $F_NONIC -eq 1 ]; then
 	cat <<EOF >> $LXC_CONFIG
@@ -419,7 +414,7 @@ echo -n "Creating container..."
 lxc-create -f ${LXC_CONFIG} ${LOG_CMDLINE} --name ${NAME} --template none || die "Unable to create the container"
 echo "ok"
 echo -n "Starting container..."
-lxc-start -d --name ${NAME} ${LOG_CMDLINE} || die "Unable to start the container"
+lxc-start -d --name ${NAME} ${LOG_CMDLINE} ${INIT_SCRIPT} || die "Unable to start the container"
 echo "ok"
 echo "Your CernVM fork '${NAME}' is up and running"
 
