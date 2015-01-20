@@ -31,10 +31,11 @@ function usage {
 	echo "CernVM Environment Fork Script"
 	echo "Usage:"
 	echo ""
-	echo " cernfm-fork <name> [-n|--new] [-c|--nonic] [-d|--daemon]"
+	echo " cernfm-fork <name> [-n|--new] [-c|--nonic] [-d|--daemon] [-f|--fast]"
 	echo "                    [-r|--run=<script>] [-t|--tty=<number>]"
 	echo "                    [-a|--admin=<username>[:<password>]]"
 	echo "                    [--init=<script>] [--cvmfs=<repos>]"
+	echo "                    [--log=<file>] [--ip=<address>]"
 	echo " cernfm-fork <name> -C [-t|--tty=<number>]"
 	echo " cernfm-fork <name> -D"
 	echo ""
@@ -394,7 +395,8 @@ if [ $F_FAST -eq 1 ]; then
 	# Create /sbin/fast-init boot script
 	cat <<EOF > ${MNT_DIR}/sbin/fast-init
 #!/bin/sh
-exec 2>&1 > /dev/tty${CONSOLE_TTY}
+# Redirect STDOUT/STDERR on the console tty
+exec 2>/dev/tty${CONSOLE_TTY} >/dev/tty${CONSOLE_TTY}
 
 # Mount filesystems
 mount -t proc proc /proc
@@ -402,6 +404,8 @@ mount -t sysfs sys /sys
 
 # Start network
 /sbin/ifup eth0
+
+# Run application/boot code
 EOF
 	chmod +x ${MNT_DIR}/sbin/fast-init
 

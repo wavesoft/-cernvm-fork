@@ -12,10 +12,11 @@ The `cernvm-fork ` utility accepts the following command-line parameters:
     CernVM Environment Fork Script
     Usage:
     
-     cernvm-fork <name> [-n|--new] [-c|--nonic] [-d|--daemon]
+     cernvm-fork <name> [-n|--new] [-c|--nonic] [-d|--daemon] [-f|--fast]
                         [-r|--run=<script>] [-t|--tty=<number>]
                         [-a|--admin=<username>[:<password>]]
                         [--init=<script>] [--cvmfs=<repos>]
+                        [--log=<file>] [--ip=<address>]
      cernvm-fork <name> -C [-t|--tty=<number>]
      cernvm-fork <name> -D
 
@@ -24,6 +25,7 @@ When creating a new CernVM fork, the following parameters are accepted:
  * `-n` or `--new` : Instructs cernvm-fork not to clone the environment, but rather to start with a clean uCernVM boot.
  * `-d` or `--daemon` : Instructs cernvm-fork not to attach a console after the container is created, but rather to let it run in the background.
  * `-c` or `--nonic` : Do not attach a network card.
+ * `-f` or `--fast` : Don't use `/sbin/init` script for system boot, but rather a fast alternative script that just prepares network and mountpoints.
  * `-r <script>` or `--run <script>` : Run the specified script after the container is booted. This file can either point to a location in the host filesystem **OR** in the guest filesystem. The script will first check the guest filesystem and if the file does not exist, it will copy it from the host filesystem.
  * `-a <user>[:<password>]` or `--admin <user>[:<password>]` : Create the given user with sudo privileges. If a password is not specified, you will be prompted to enter it right before the container is booted.
  * `-t` or `--tty` : The TTY you want the console to attach to. This flag has no effect if `-d` was not specified.
@@ -36,6 +38,36 @@ The `cernvm-fork` utility also accepts the following commands:
 
  * `-C` : Connect to the console of the specified linux container.
  * `-D` : Destroy the specified forked linux container.
+
+# Examples
+
+## Cloning
+
+You can snapshot the current state of the operating system and start a new fork of it using the following command:
+
+```sh
+cernvm-fork fork01
+```
+
+## Start from scratch
+
+You can start a new fork of the same uCernVM version using the `--new` flag. In order to log-into the new system you should also define an admin user:
+
+```sh
+cernvm-fork fork02 --new --admin admin:s3cr3t
+```
+
+The admin user has sudo privileges.
+
+## Lightweight isolated environment
+
+You can start an application in an isolated environment with the minimum memory and disk footprint using pre-mounted CVMFS repositories and fast-booting.
+
+For example, let's say that you want to run the application `/cvmfs/sft.cern.ch/my_app` in an isolated environment:
+
+```sh
+cernvm-fork fork03 --new --fast --cvmfs=sft.cern.ch --run=/cvmfs/sft.cern.ch/my_app
+```
 
 # Environment Preparation
 
