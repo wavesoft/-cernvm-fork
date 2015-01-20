@@ -43,6 +43,7 @@ function usage {
 	echo "  -n|--new          Don't clone, start a new one"
 	echo "  -d|--daemon       Don't attach console, deamonize"
 	echo "  -c|--nonic        Don't add a network card"
+	echo "  -f|--fast         Don't use system init, but a fast alternative"
 	echo "  -r|--run=<script> Run the given script upon boot"
 	echo "  -a|--admin=<user> Create a user with sudo privileges"
 	echo "  -t|--tty=<number> The TTY to connect the console to"
@@ -68,7 +69,7 @@ NAME=$1
 [ "${NAME:0:1}" == "-" ] && echo "ERROR: Expecting fork name as first parameter! (Use --help for more info)" && exit 1
 
 # Get options from command-line
-options=$(getopt -o hDCt:ncdra: -l help,destroy,console,tty:,new,nonic,daemon,admin:,cvmfs:,run:,init:,ip:,log: -- "$@")
+options=$(getopt -o hDCt:nfcdra: -l help,destroy,console,tty:,new,nonic,fast,daemon,admin:,cvmfs:,run:,init:,ip:,log: -- "$@")
 if [ $? -ne 0 ]; then
 	usage
 	exit 1
@@ -87,6 +88,7 @@ fi
 F_DAEMON=0
 F_NEW=0
 F_NONIC=0
+F_FAST=0
 RUN_SCRIPT=""
 INIT_SCRIPT="/sbin/init"
 CVMFS_REPOS=""
@@ -105,6 +107,7 @@ do
 		-n|--new)           F_NEW=1; shift 1;;
 		-d|--daemon)        F_DAEMON=1; shift 1;;
 		-c|--nonic)         F_NONIC=1; shift 1;;
+		-f|--fast)          F_FAST=1; INIT_SCRIPT="/sbin/fast-init"; shift 1;;
 		-r|--run)           RUN_SCRIPT=$2; shift 2;;
 		-t|--tty)			CONSOLE_TTY=$2; shift 2;;
 		-a|--admin)
@@ -354,10 +357,16 @@ fi
 
 # Mount CVMFS repositories & prepare bind-mounts
 if [ ! -z "$CVMFS_REPOS" ]; then
-	echo -n "Disabling Autofs in the container..."
-	chroot ${MNT_DIR} chkconfig autofs off
-	echo "ok"
 
+	# If we are following system init process, disable
+	# AutoFS service because it will be mounted ontop of /cvmfs
+	if [ "${INIT_SCRIPT}" == "/sbin/init" ]; then
+		echo -n "Disabling Autofs in the container..."
+		chroot ${MNT_DIR} chkconfig autofs off
+		echo "ok"
+	fi
+
+	# Premount CVMFS repositories
 	echo -n "Premounting CVMFS repositories: "
 	for REPOS in $CVMFS_REPOS; do
 	   echo -n "${REPOS} "
@@ -369,6 +378,7 @@ if [ ! -z "$CVMFS_REPOS" ]; then
 	   echo "lxc.mount.entry = /cvmfs/${REPOS} cvmfs/${REPOS} none ro,bind,optional 0 0" >> $LXC_CONFIG
 	done
 	echo "ok"
+
 fi
 
 # Die after error function (includes cleanup)
@@ -378,13 +388,37 @@ function die {
 	exit 2
 }
 
+# Create fast-init script if asked to
+if [ $F_FAST -eq 1 ]; then
+
+	# Create /sbin/fast-init boot script
+	cat <<EOF > ${MNT_DIR}/sbin/fast-init
+#!/bin/sh
+exec 2>&1 > /dev/tty${CONSOLE_TTY}
+
+# Mount filesystems
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+
+# Start network
+/sbin/ifup eth0
+EOF
+	chmod +x ${MNT_DIR}/sbin/fast-init
+
+fi
+
 # Extend rc.local with the run script
 if [ ! -z "${RUN_SCRIPT}" ]; then
+
+	# If we are using fast boot, append it on /sbin/fast-init
+	TARGET_SCRIPT="${MNT_DIR}/etc/rc.local"
+	[ $F_FAST -eq 1 ] && TARGET_SCRIPT="${MNT_DIR}/sbin/fast-init"
+
 	echo -n "Adding run script..."
 	# Check if this is a file inside the guest
 	if [ -f "${MNT_DIR}/${RUN_SCRIPT}" ]; then
 		# Append to rc.local
-		echo "${RUN_SCRIPT}" >> ${MNT_DIR}/etc/rc.local
+		echo "${RUN_SCRIPT}" >> ${TARGET_SCRIPT}
 	elif [ ! -f "${RUN_SCRIPT}" ]; then
 		die "The specified run script '${RUN_SCRIPT}' was not found!"
 	else
@@ -392,9 +426,15 @@ if [ ! -z "${RUN_SCRIPT}" ]; then
 		TARGET_NAME=/tmp/postinit-$(basename ${RUN_SCRIPT})
 		cp ${RUN_SCRIPT} ${MNT_DIR}/${TARGET_NAME}
 		# Append to rc.local
-		echo "${TARGET_NAME}" >> ${MNT_DIR}/etc/rc.local
+		echo "${TARGET_NAME}" >> ${TARGET_SCRIPT}
 	fi
 	echo "ok"
+else
+
+	# If we are using fast boot, but no run script
+	# append default agetty console
+	echo "/sbin/agetty tty${CONSOLE_TTY} 9600 linux" >> ${MNT_DIR}/sbin/fast-init
+
 fi
 
 # Create admin accounts if requested
