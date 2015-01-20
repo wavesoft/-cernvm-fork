@@ -53,7 +53,7 @@ rpm -ivh http://mirror.nl.leaseweb.net/epel/6/x86_64/epel-release-6-8.noarch.rpm
 yum -y install lxc lxc-libs lxc-templates bridge-utils libcgroup
 ```
 
-**NOTE:** _The following steps are no more required. The fork utility will try to automatically start the required services and create the missing files._
+**NOTE:** _The following steps are no longer required. The fork utility will try to automatically start the required services and create the missing files._
 
 ## 2. Add a 'none' template
 
@@ -121,10 +121,8 @@ When instructed to perform a *Clean boot*, the utility will follow the same proc
 
 # Incomplete features
 
- * The utility expects a network bridge called `lxcbr0` to be existing and already configured with the IP subnet `192.168.25.0/24`. (The utility must be able to adapt on the current network configuration).
  * The `--cvmfs` parameter even though it's properly functioning, should not be used if you are booting uCernVM with the default init process. That's because the guest OS will mount autofs on `/cvmfs` and will handle automatic mounting of any CVMFS repository as commonly used in CernVM. This parameter might be useful if you are using your own, lightweight init process. (The utility must be able to detect and disable the CVMFS bind-mount feature when using the default init).
  * If you start the script as a daemon and the guest OS powers off, the scratch folder and the linux container will remain until explicitly deleted with `cernvm-fork <name> -D`.
- * It might be a good idea for the `cernvm-fork` script to check if the `cgroup` and `cgred`  services are running and start them.
 
 # License
 
