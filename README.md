@@ -48,12 +48,14 @@ You can find pre-built binaries of the lxc-tools in the EPEL repository:
 ```sh
 # Add EPEL repository
 rpm -ivh http://mirror.nl.leaseweb.net/epel/6/x86_64/epel-release-6-8.noarch.rpm
-
-**NOTE:** _The following steps are no more required. The fork utility will try to automatically start the required services and create the missing files._
+```
 
 # Install LXC tools
+```sh
 yum -y install lxc lxc-libs lxc-templates bridge-utils libcgroup
 ```
+
+**NOTE:** _The following steps are no more required. The fork utility will try to automatically start the required services and create the missing files._
 
 ## 2. Add a 'none' template
 
