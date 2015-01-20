@@ -48,10 +48,8 @@ You can find pre-built binaries of the lxc-tools in the EPEL repository:
 ```sh
 # Add EPEL repository
 rpm -ivh http://mirror.nl.leaseweb.net/epel/6/x86_64/epel-release-6-8.noarch.rpm
-```
 
 # Install LXC tools
-```sh
 yum -y install lxc lxc-libs lxc-templates bridge-utils libcgroup
 ```
 
