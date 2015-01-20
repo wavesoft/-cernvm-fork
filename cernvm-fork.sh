@@ -31,18 +31,20 @@ function usage {
 	echo "CernVM Environment Fork Script"
 	echo "Usage:"
 	echo ""
-	echo " $1 <name> [-n|--new] [-c|--nonic] [-d|--daemon]"
-	echo "           [-r|--run=<script>] [-t|--tty=<number>]"
-	echo "           [-a|--admin=<username>[:<password>]]"
-	echo "           [--init=<script>] [--cvmfs=<repos>]"
-	echo " $1 <name> -C [-t|--tty=<number>]"
-	echo " $1 <name> -D"
+	echo " cernfm-fork <name> [-n|--new] [-c|--nonic] [-d|--daemon] [-f|--fast]"
+	echo "                    [-r|--run=<script>] [-t|--tty=<number>]"
+	echo "                    [-a|--admin=<username>[:<password>]]"
+	echo "                    [--init=<script>] [--cvmfs=<repos>]"
+	echo "                    [--log=<file>] [--ip=<address>]"
+	echo " cernfm-fork <name> -C [-t|--tty=<number>]"
+	echo " cernfm-fork <name> -D"
 	echo ""
 	echo "Options:"
 	echo "  -h|--help         This help screen"
 	echo "  -n|--new          Don't clone, start a new one"
 	echo "  -d|--daemon       Don't attach console, deamonize"
 	echo "  -c|--nonic        Don't add a network card"
+	echo "  -f|--fast         Don't use system init, but a fast alternative"
 	echo "  -r|--run=<script> Run the given script upon boot"
 	echo "  -a|--admin=<user> Create a user with sudo privileges"
 	echo "  -t|--tty=<number> The TTY to connect the console to"
@@ -68,17 +70,26 @@ NAME=$1
 [ "${NAME:0:1}" == "-" ] && echo "ERROR: Expecting fork name as first parameter! (Use --help for more info)" && exit 1
 
 # Get options from command-line
-options=$(getopt -o hDCt:ncdra: -l help,destroy,console,tty:,new,nonic,daemon,admin:,cvmfs:,run:,init:,ip:,log: -- "$@")
+options=$(getopt -o hDCt:nfcdra: -l help,destroy,console,tty:,new,nonic,fast,daemon,admin:,cvmfs:,run:,init:,ip:,log: -- "$@")
 if [ $? -ne 0 ]; then
-		usage $(basename $0)
+	usage
 	exit 1
 fi
 eval set -- "$options"
+
+# Detect the first bridge availble
+SYS_BRIDGE_IP=""
+SYS_BRIDGE=$(brctl show | tail -n -1 | head -n 1 | awk '{print $1}')
+if [ ! -z "$SYS_BRIDGE" ]; then
+	# Detect the IP address of the bridge
+	SYS_BRIDGE_IP=$(ifconfig ${SYS_BRIDGE} | grep 'inet addr' | sed -r 's/.*?addr:([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+fi
 
 # Prepare defaults
 F_DAEMON=0
 F_NEW=0
 F_NONIC=0
+F_FAST=0
 RUN_SCRIPT=""
 INIT_SCRIPT="/sbin/init"
 CVMFS_REPOS=""
@@ -93,10 +104,11 @@ CONSOLE_TTY="1"
 while true
 do
 	case "$1" in
-		-h|--help)          usage $0 && exit 0;;
+		-h|--help)          usage && exit 0;;
 		-n|--new)           F_NEW=1; shift 1;;
 		-d|--daemon)        F_DAEMON=1; shift 1;;
 		-c|--nonic)         F_NONIC=1; shift 1;;
+		-f|--fast)          F_FAST=1; INIT_SCRIPT="/sbin/fast-init"; shift 1;;
 		-r|--run)           RUN_SCRIPT=$2; shift 2;;
 		-t|--tty)			CONSOLE_TTY=$2; shift 2;;
 		-a|--admin)
@@ -119,11 +131,6 @@ do
 		*)                  break ;;
 	esac
 done
-
-# Override init script if not defined by -r
-if [ ! -z "${INIT_SCRIPT}" ]; then
-	INIT_SCRIPT="$*"
-fi
 
 # Prepare directories
 PROJECT_DIR=${CONFIG_RW_DIR}/${NAME}
@@ -206,6 +213,77 @@ if [ ! -f /usr/share/lxc/templates/lxc-none ]; then
 	chmod +x /usr/share/lxc/templates/lxc-none
 fi
 
+# Check if cgconfig and cgred daemons are running
+if [ $(service cgconfig status | grep -ic 'running') -ne 1 ]; then
+	service cgconfig start
+	if [ $? -ne 0 ]; then
+		echo "ERROR: Unable to start the cgconfig daemon!"
+		exit 1
+	fi
+fi
+if [ $(service cgred status | grep -ic 'running') -ne 1 ]; then
+	service cgred start
+	if [ $? -ne 0 ]; then
+		echo "ERROR: Unable to start the cgred daemon!"
+		exit 1
+	fi
+fi
+
+# Additional checks only if we need a network device
+if [ $F_NONIC -eq 0 ]; then
+
+	# Check if system bridge exists and if not create it
+	if [ -z "${SYS_BRIDGE}" ]; then
+		echo -n "Creating bridge interface ${CONFIG_IP_BRIDGE}..."
+		brctl addbr ${CONFIG_IP_BRIDGE}
+		if [ $? -ne 0 ]; then
+			echo "ERROR: Unable to create bridge interface!"
+			exit 1
+		fi
+		echo "ok"
+	else
+		CONFIG_IP_BRIDGE=${SYS_BRIDGE}
+	fi
+
+	# Check if system bridge has an IP and if not configure it
+	if [ -z "${SYS_BRIDGE_IP}" ]; then
+		echo -n "Configuring ${CONFIG_IP_BRIDGE}..."
+		ifconfig ${CONFIG_IP_BRIDGE} ${CONFIG_IP_GATEWAY}/24
+		if [ $? -ne 0 ]; then
+			echo "ERROR: Unable to configure the bridge interface!"
+			exit 1
+		fi
+		echo "ok"
+	else
+		# Import the IP configuration from the bridge
+		CONFIG_IP_GATEWAY=${SYS_BRIDGE_IP}
+		CONFIG_IP_SUFFIX=$(echo ${SYS_BRIDGE_IP} | sed -r 's/([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+	fi
+
+	# Check for post-routing masquerade
+	if [ $(iptables -n -t nat -L POSTROUTING | grep -ci MASQUERADE) -eq 0 ]; then
+		echo -n "Adding required NAT rules..."
+		iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+		if [ $? -ne 0 ]; then
+			echo "ERROR: Unable to configure firewall!"
+			exit 1
+		fi
+		echo "ok"
+	fi
+
+	# Check if NAT IP forwarding is enabled
+	if [ $(cat /proc/sys/net/ipv4/ip_forward) -ne 1 ]; then
+		echo -n "Enabling IP forwarding..."
+		echo 1 > /proc/sys/net/ipv4/ip_forward
+		if [ $? -ne 0 ]; then
+			echo "ERROR: Unable to enable IP forwarding!"
+			exit 1
+		fi
+		echo "ok"
+	fi
+	
+fi
+
 # Prepare mount point
 echo -n "Preparing filesystem..."
 mkdir -p ${MNT_DIR}
@@ -223,12 +301,6 @@ fi
 echo -n "Mounting container root on ${MNT_DIR}..."
 mount -t aufs -o dirs=${RW_DIR}=rw:${RO_DIR}=ro aufs-${NAME} ${MNT_DIR}
 echo "ok"
-
-# Calculate a random IP Address
-if [ -z "${IP_ADDR}" ]; then
-   IP_ADDR=${CONFIG_IP_SUFFIX}.$(shuf -i 2-254 -n 1)
-fi
-echo "The container will have IP ${IP_ADDR}"
 
 # Create linux container file
 LXC_CONFIG=${PROJECT_DIR}/config.lxc
@@ -249,6 +321,13 @@ if [ $F_NONIC -eq 1 ]; then
 lxc.network.type=empty
 EOF
 else
+
+	# Calculate a random IP Address
+	if [ -z "${IP_ADDR}" ]; then
+	   IP_ADDR=${CONFIG_IP_SUFFIX}.$(shuf -i 2-254 -n 1)
+	fi
+	echo "The container will have IP ${IP_ADDR}"
+
 	cat <<EOF >> $LXC_CONFIG
 lxc.network.type = veth
 lxc.network.flags = up
@@ -279,10 +358,16 @@ fi
 
 # Mount CVMFS repositories & prepare bind-mounts
 if [ ! -z "$CVMFS_REPOS" ]; then
-	echo -n "Disabling Autofs in the container..."
-	chroot ${MNT_DIR} chkconfig autofs off
-	echo "ok"
 
+	# If we are following system init process, disable
+	# AutoFS service because it will be mounted ontop of /cvmfs
+	if [ "${INIT_SCRIPT}" == "/sbin/init" ]; then
+		echo -n "Disabling Autofs in the container..."
+		chroot ${MNT_DIR} chkconfig autofs off
+		echo "ok"
+	fi
+
+	# Premount CVMFS repositories
 	echo -n "Premounting CVMFS repositories: "
 	for REPOS in $CVMFS_REPOS; do
 	   echo -n "${REPOS} "
@@ -294,6 +379,7 @@ if [ ! -z "$CVMFS_REPOS" ]; then
 	   echo "lxc.mount.entry = /cvmfs/${REPOS} cvmfs/${REPOS} none ro,bind,optional 0 0" >> $LXC_CONFIG
 	done
 	echo "ok"
+
 fi
 
 # Die after error function (includes cleanup)
@@ -303,13 +389,40 @@ function die {
 	exit 2
 }
 
+# Create fast-init script if asked to
+if [ $F_FAST -eq 1 ]; then
+
+	# Create /sbin/fast-init boot script
+	cat <<EOF > ${MNT_DIR}/sbin/fast-init
+#!/bin/sh
+# Redirect STDOUT/STDERR on the console tty
+exec 2>/dev/tty${CONSOLE_TTY} >/dev/tty${CONSOLE_TTY}
+
+# Mount filesystems
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+
+# Start network
+/sbin/ifup eth0
+
+# Run application/boot code
+EOF
+	chmod +x ${MNT_DIR}/sbin/fast-init
+
+fi
+
 # Extend rc.local with the run script
 if [ ! -z "${RUN_SCRIPT}" ]; then
+
+	# If we are using fast boot, append it on /sbin/fast-init
+	TARGET_SCRIPT="${MNT_DIR}/etc/rc.local"
+	[ $F_FAST -eq 1 ] && TARGET_SCRIPT="${MNT_DIR}/sbin/fast-init"
+
 	echo -n "Adding run script..."
 	# Check if this is a file inside the guest
 	if [ -f "${MNT_DIR}/${RUN_SCRIPT}" ]; then
 		# Append to rc.local
-		echo "${RUN_SCRIPT}" >> ${MNT_DIR}/etc/rc.local
+		echo "${RUN_SCRIPT}" >> ${TARGET_SCRIPT}
 	elif [ ! -f "${RUN_SCRIPT}" ]; then
 		die "The specified run script '${RUN_SCRIPT}' was not found!"
 	else
@@ -317,9 +430,15 @@ if [ ! -z "${RUN_SCRIPT}" ]; then
 		TARGET_NAME=/tmp/postinit-$(basename ${RUN_SCRIPT})
 		cp ${RUN_SCRIPT} ${MNT_DIR}/${TARGET_NAME}
 		# Append to rc.local
-		echo "${TARGET_NAME}" >> ${MNT_DIR}/etc/rc.local
+		echo "${TARGET_NAME}" >> ${TARGET_SCRIPT}
 	fi
 	echo "ok"
+else
+
+	# If we are using fast boot, but no run script
+	# append default agetty console
+	echo "/sbin/agetty tty${CONSOLE_TTY} 9600 linux" >> ${MNT_DIR}/sbin/fast-init
+
 fi
 
 # Create admin accounts if requested
@@ -339,7 +458,7 @@ echo -n "Creating container..."
 lxc-create -f ${LXC_CONFIG} ${LOG_CMDLINE} --name ${NAME} --template none || die "Unable to create the container"
 echo "ok"
 echo -n "Starting container..."
-lxc-start -d --name ${NAME} ${LOG_CMDLINE} || die "Unable to start the container"
+lxc-start -d --name ${NAME} ${LOG_CMDLINE} ${INIT_SCRIPT} || die "Unable to start the container"
 echo "ok"
 echo "Your CernVM fork '${NAME}' is up and running"
 
