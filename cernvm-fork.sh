@@ -35,7 +35,7 @@ function usage {
 	echo "                    [-r|--run=<script>] [-t|--tty=<number>]"
 	echo "                    [-a|--admin=<username>[:<password>]]"
 	echo "                    [--init=<script>] [--cvmfs=<repos>]"
-	echo "                    [--log=<file>] [--ip=<address>]"
+	echo "                    [--log=<file>] [--ip=<address>] [-o <lxc-option>]"
 	echo " cernfm-fork <name> -C [-t|--tty=<number>]"
 	echo " cernfm-fork <name> -D"
 	echo ""
