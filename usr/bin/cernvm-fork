@@ -80,7 +80,7 @@ eval set -- "$options"
 
 # Detect the first bridge availble
 SYS_BRIDGE_IP=""
-SYS_BRIDGE=$(brctl show | tail -n -1 | head -n 1 | awk '{print $1}')
+SYS_BRIDGE=$(brctl show | tail -n +2 | head -n 1 | awk '{print $1}')
 if [ ! -z "$SYS_BRIDGE" ]; then
 	# Detect the IP address of the bridge
 	SYS_BRIDGE_IP=$(ifconfig ${SYS_BRIDGE} | grep 'inet addr' | sed -r 's/.*?addr:([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/')
