@@ -34,29 +34,31 @@ function usage {
 	echo " cernfm-fork <name> [-n|--new] [-c|--nonic] [-d|--daemon] [-f|--fast]"
 	echo "                    [-r|--run=<script>] [-t|--tty=<number>]"
 	echo "                    [-a|--admin=<username>[:<password>]]"
-	echo "                    [--init=<script>] [--cvmfs=<repos>]"
-	echo "                    [--log=<file>] [--ip=<address>] [-o <lxc-option>]"
+	echo "                    [-E|--env='variable=value'] [--ip=<address>]"
+	echo "                    [--init=<script>] [--cvmfs=<repos>] [--log=<file>]"
+	echo "                    [-o <lxc-option>]"
 	echo " cernfm-fork <name> -C [-t|--tty=<number>]"
 	echo " cernfm-fork <name> -D"
 	echo ""
 	echo "Options:"
-	echo "  -h|--help         This help screen"
-	echo "  -n|--new          Don't clone, start a new one"
-	echo "  -d|--daemon       Don't attach console, deamonize"
-	echo "  -c|--nonic        Don't add a network card"
-	echo "  -f|--fast         Don't use system init, but a fast alternative"
-	echo "  -r|--run=<script> Run the given script upon boot"
-	echo "  -a|--admin=<user> Create a user with sudo privileges"
-	echo "  -t|--tty=<number> The TTY to connect the console to"
-	echo "  -o <lxc-config>   Additional LXC lines in the configuration script"
-	echo "  --init=<script>   Custom init script to use for booting"
-	echo "  --ip=<address>    The IP address of the new container"
-	echo "  --log=<file>      Where to log debug information"
-	echo "  --cvmfs=<repos>   CVMFS repositories to mount from host"
+	echo "  -h|--help         This help screen."
+	echo "  -n|--new          Don't clone, start a new one."
+	echo "  -d|--daemon       Don't attach console, deamonize."
+	echo "  -c|--nonic        Don't add a network card."
+	echo "  -f|--fast         Don't use system init, but a fast alternative."
+	echo "  -E|--env          Define an environment variable."
+	echo "  -r|--run=<script> Run the given script upon boot."
+	echo "  -a|--admin=<user> Create a user with sudo privileges."
+	echo "  -t|--tty=<number> The TTY to connect the console to."
+	echo "  -o <lxc-config>   Additional LXC lines in the configuration script."
+	echo "  --init=<script>   Custom init script to use for booting."
+	echo "  --ip=<address>    The IP address of the new container."
+	echo "  --log=<file>      Where to log debug information."
+	echo "  --cvmfs=<repos>   CVMFS repositories to mount from host."
 	echo ""
 	echo "Commands:"
-	echo "  -D|--destroy      Destroy the fork instance"
-	echo "  -C|--console      Open a console to the given instance"
+	echo "  -D|--destroy      Destroy the fork instance."
+	echo "  -C|--console      Open a console to the given instance."
 	echo ""
 }
 
@@ -74,7 +76,7 @@ NAME=$1
 [ $(id -u) -ne 0 ] && echo "ERROR: Only root can use this utility!" && exit 2
 
 # Get options from command-line
-options=$(getopt -o hDCt:nfcdra:o: -l help,destroy,console,tty:,new,nonic,fast,daemon,admin:,cvmfs:,run:,init:,ip:,log: -- "$@")
+options=$(getopt -o hDCt:nfcdra:o:E: -l help,destroy,console,tty:,new,nonic,fast,daemon,admin:,cvmfs:,run:,init:,ip:,log:,env: -- "$@")
 if [ $? -ne 0 ]; then
 	usage
 	exit 1
@@ -96,6 +98,7 @@ ADMIN_PWD=""
 COMMAND="create"
 CONSOLE_TTY="1"
 RAW_CONFIG=""
+ENV_VARS=""
 
 # Process options
 while true
@@ -108,6 +111,7 @@ do
 		-f|--fast)          F_FAST=1; INIT_SCRIPT="/sbin/fast-init"; shift 1;;
 		-r|--run)           RUN_SCRIPT=$2; shift 2;;
 		-t|--tty)			CONSOLE_TTY=$2; shift 2;;
+		-E|--env)           ENV_VARS="${ENV_VARS}|$2"; shift 2;;
 		-a|--admin)
 			ADMIN_USER=$2
 			ADMIN_PWD=$(echo "${ADMIN_USER}" | awk -F':' '{print $2}')
@@ -437,6 +441,23 @@ mount -t sysfs sys /sys
 # Run application/boot code
 EOF
 	chmod +x ${MNT_DIR}/sbin/fast-init
+
+	# Append environment variables if defined
+	if [ ! -z "$ENV_VARS" ]; then
+		(
+			# Split on '|'
+			IFS="|"
+			# Export variables
+			for VAR in ${ENV_VARS}; do
+				if [ ! -z "${VAR}" ]; then
+					# Append on current environment (for immediate command)
+					echo "export ${VAR}" >> ${MNT_DIR}/sbin/fast-init
+					# Append on the global profile (for log-in)
+					echo "export ${VAR}" >> ${MNT_DIR}/etc/profile.d/cernvm-fork.sh
+				fi
+			done
+		)
+	fi
 
 fi
 
