@@ -81,14 +81,6 @@ if [ $? -ne 0 ]; then
 fi
 eval set -- "$options"
 
-# Detect the first bridge availble
-SYS_BRIDGE_IP=""
-SYS_BRIDGE=$(brctl show | tail -n +2 | head -n 1 | awk '{print $1}')
-if [ ! -z "$SYS_BRIDGE" ]; then
-	# Detect the IP address of the bridge
-	SYS_BRIDGE_IP=$(ifconfig ${SYS_BRIDGE} | grep 'inet addr' | sed -r 's/.*?addr:([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-fi
-
 # Prepare defaults
 F_DAEMON=0
 F_NEW=0
@@ -160,7 +152,7 @@ function cleanup {
 	# Stop container
 	if [ $(lxc-ls | grep -c -r "^${NAME}$") -ne 0 ]; then
 		echo "Stopping container..."
-		lxc-stop --name=${NAME} ${LOG_CMDLINE} -k
+		lxc-stop --name=${NAME} ${LOG_CMDLINE} -k 2>/dev/null
 	fi
 
 	# Unmount lingering filesystems
@@ -173,7 +165,7 @@ function cleanup {
 	# Destroy container if exists
 	if [ $(lxc-ls | grep -c -r "^${NAME}$") -ne 0 ]; then
 		echo "Destroying container..."
-		lxc-destroy --name=${NAME} ${LOG_CMDLINE}
+		lxc-destroy --name=${NAME} ${LOG_CMDLINE} >/dev/null
 		echo "Cleaning-up config files..."
 		rm -f ${LXC_CONFIG}
 		rm -f ${CONSOLE_FILE}
@@ -244,6 +236,14 @@ fi
 
 # Additional checks only if we need a network device
 if [ $F_NONIC -eq 0 ]; then
+
+	# Detect the first bridge availble
+	SYS_BRIDGE_IP=""
+	SYS_BRIDGE=$(brctl show | tail -n +2 | head -n 1 | awk '{print $1}')
+	if [ ! -z "$SYS_BRIDGE" ]; then
+		# Detect the IP address of the bridge
+		SYS_BRIDGE_IP=$(ifconfig ${SYS_BRIDGE} | grep 'inet addr' | sed -r 's/.*?addr:([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+	fi
 
 	# Check if system bridge exists and if not create it
 	if [ -z "${SYS_BRIDGE}" ]; then
