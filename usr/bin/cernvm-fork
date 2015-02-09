@@ -142,8 +142,6 @@ LOG_CMDLINE=""
 if [ ! -z "${LOG_FILE}" ]; then
 	LOG_CMDLINE="-o ${LOG_FILE} -l trace"
 	echo "------------------" >> ${LOG_FILE}
-	cat $LXC_CONFIG >> ${LOG_FILE}
-	echo "------------------" >> ${LOG_FILE}
 fi
 
 # Cleanup function
@@ -482,6 +480,12 @@ if [ ! -z "${ADMIN_USER}" ]; then
 	echo -e "${ADMIN_USER}\tALL=(ALL)\tALL" >> ${MNT_DIR}/etc/sudoers
 	# Close
 	echo "ok"
+fi
+
+# Append LXC_CONFIG in the logfile
+if [ ! -z "${LOG_FILE}" ]; then
+	cat $LXC_CONFIG >> ${LOG_FILE}
+	echo "------------------" >> ${LOG_FILE}
 fi
 
 # Create a linux container
