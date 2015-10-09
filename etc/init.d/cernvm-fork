@@ -87,6 +87,6 @@ case "$1" in
         true
         ;;
     *)
-        echo "Usage: $0 {stop}"
+        echo "Usage: $0 {start|stop}"
         ;;
 esac
