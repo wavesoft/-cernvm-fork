@@ -2,7 +2,7 @@
 #
 # cernvm-fork - Shutdown scripts for cernvm-fork
 #
-# chkconfig: 12345 99 01
+# chkconfig: 12345 99 15
 # description: Stops all cernvm-forks at shutdown
 # author: Ioannis Charalampidis <ioannis.charalampidis@cern.ch>, PH/SFT
 #
