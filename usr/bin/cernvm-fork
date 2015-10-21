@@ -235,6 +235,13 @@ if [ $(service cgred status | grep -ic 'running') -ne 1 ]; then
 		exit 1
 	fi
 fi
+if [ $(service dnsmasq status | grep -ic 'running') -ne 1 ]; then
+	service dnsmasq start
+	if [ $? -ne 0 ]; then
+		echo "ERROR: Unable to start the dnsmasq daemon!"
+		exit 1
+	fi
+fi
 
 # Additional checks only if we need a network device
 if [ $F_NONIC -eq 0 ]; then
@@ -370,11 +377,8 @@ lxc.network.name = eth0
 lxc.network.mtu=1500
 EOF
 
-	# Get DNS nameservers
-	DNS1=$(cat /etc/resolv.conf | grep nameserver | head -n1 | awk '{print $2}')
-	DNS2=$(cat /etc/resolv.conf | grep nameserver | head -n2 | tail -n1 | awk '{print $2}')
-
-	# Setup network inside the VM
+	# Setup network inside the VM, using the gateway
+	# IP address as the DNS server (we are running dnsmasq)
 	cat <<EOF > ${MNT_DIR}/etc/sysconfig/network-scripts/ifcfg-eth0
 DEVICE=eth0
 BOOTPROTO=none
@@ -382,8 +386,7 @@ ONBOOT=yes
 GATEWAY=${CONFIG_IP_GATEWAY}
 IPADDR=${IP_ADDR}
 NETMASK=255.255.255.0
-DNS1=${DNS1}
-DNS2=${DNS2}
+DNS1=${IP_ADDR}
 EOF
 
 fi
@@ -502,6 +505,9 @@ if [ ! -z "${ADMIN_USER}" ]; then
 	# Close
 	echo "ok"
 fi
+
+# Keep system's timezone
+cp -f -b /etc/localtime "${MNT_DIR}/etc/localtime"
 
 # Append LXC_CONFIG in the logfile
 if [ ! -z "${LOG_FILE}" ]; then
