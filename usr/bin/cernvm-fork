@@ -367,6 +367,13 @@ else
 	fi
 	echo "The container will have IP ${IP_ADDR}"
 
+	# Get the default route interface
+	ETH_INTERFACE=$(route | grep default | awk '{print $8}' )
+	[ -z "$ETH_INTERFACE" ] && ETH_INTERFACE=eth0
+	ETH_MTU=$(ifconfig ${ETH_INTERFACE} | grep MTU | sed -E 's/.*?MTU:([0-9]+).*/\1/')
+	[ -z "$ETH_MTU" ] && ETH_MTU=1500
+
+	# Create network 
 	cat <<EOF >> $LXC_CONFIG
 lxc.network.type = veth
 lxc.network.flags = up
@@ -374,7 +381,7 @@ lxc.network.link = ${CONFIG_IP_BRIDGE}
 lxc.network.ipv4 = ${IP_ADDR}
 lxc.network.ipv4.gateway = ${CONFIG_IP_GATEWAY}
 lxc.network.name = eth0
-lxc.network.mtu=1500
+lxc.network.mtu = ${ETH_MTU}
 EOF
 
 	# Setup network inside the VM, using the gateway
@@ -386,7 +393,7 @@ ONBOOT=yes
 GATEWAY=${CONFIG_IP_GATEWAY}
 IPADDR=${IP_ADDR}
 NETMASK=255.255.255.0
-DNS1=${IP_ADDR}
+DNS1=${CONFIG_IP_GATEWAY}
 EOF
 
 fi
