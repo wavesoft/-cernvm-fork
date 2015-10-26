@@ -395,6 +395,9 @@ IPADDR=${IP_ADDR}
 NETMASK=255.255.255.0
 DNS1=${CONFIG_IP_GATEWAY}
 EOF
+	
+	# Also create a resolv.conf to remove some boot-time warnings
+	echo "nameserver ${CONFIG_IP_GATEWAY}" > ${MNT_DIR}/etc/resolv.conf
 
 fi
 
